@@ -251,6 +251,20 @@ void d()
 
 }
 
+void e()
+{
+        TJAMES_EQUAL(1, 1);
+        TJAMES_EQUAL(3, 2);
+        TJAMES_EQUAL(2, 2);
+        TJAMES_NOT_EQUAL(1, 2);
+        TJAMES_NOT_EQUAL(3, 3);
+        TJAMES_NOT_EQUAL(2, 4);
+        TJAMES_LESS(1, 2);
+        TJAMES_GREATER(4, 4);
+        TJAMES_LESS_EQUAL(2, 4);
+        TJAMES_GREATER_EQUAL(1, 4);
+}
+
 int main()
 {
         TJames_Init();
@@ -259,6 +273,7 @@ int main()
         TJAMES_ADD_FUNC(b);
         TJAMES_ADD_FUNC(c);
         TJAMES_ADD_FUNC(d);
+        TJAMES_ADD_FUNC(e);
 
         return TJames_Run();
 }

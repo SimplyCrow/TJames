@@ -16,7 +16,7 @@ enum TJames_TestResult
         EMPTY_TEST = 0,
         SUCCESSFUL_TEST,
         FAILED_TEST,
-        SUSPENDED_TEST
+        SKIPED_TEST
 };
 
 struct TJames_List
@@ -30,12 +30,19 @@ struct TJames_List
 #define LIST_EPTR(element_type, list, index) ((element_type*)list.data + index)
 #define LIST_E(element_type, list, index) (*LIST_EPTR(element_type, list, index))
 
+struct TJames_TestFuncData
+{
+        const char *func_name;
+        const char *group_name;
+        size_t added_on_line;
+        const char *file;
+        const char *file_name;
+};
+
 struct TJames_TestFunc
 {
         TestFuncPtr func_ptr;
-        const char *func_name;
-        size_t added_on_line;
-        const char *file;
+        struct TJames_TestFuncData data;
 };
 
 struct TJames_Error
@@ -106,6 +113,18 @@ void TJames_ClearList(struct TJames_List *list)
         list->count = 0;
 }
 
+
+const char *GetFileName(const char *path)
+{
+        size_t last_slash = 0;
+        for(size_t i = 0; path[i] != '\0'; ++i) {
+                if(path[i] == '/') {
+                        last_slash = i;
+                }
+        }
+        return path + last_slash + 1;
+}
+
 void TJames_PushError(const char* message, const enum TJames_ErrorType type, const size_t line)
 {
         struct TJames_Error error;
@@ -130,47 +149,99 @@ void TJames_Destroy()
         printf("Destroyed TJames!\n");
 }
 
-int TJames_Run()
+
+void TJames_DumpTestFunc(const struct TJames_TestFuncData* func)
 {
-        int global_result = 0;
-        for(size_t i = 0; i < GLOBAL_CORE_DATA.func_list.count; ++i)
-        {
-                GLOBAL_CORE_DATA.last_test_result = EMPTY_TEST;
-                TJames_ClearList(&GLOBAL_CORE_DATA.error_list);
-
-                struct TJames_TestFunc *test_func = LIST_EPTR(struct TJames_TestFunc, GLOBAL_CORE_DATA.func_list, i);
-
-                printf("%s:%s  ", test_func->file, test_func->func_name);
-
-                test_func->func_ptr();
-
-                if(GLOBAL_CORE_DATA.last_test_result == SUCCESSFUL_TEST || GLOBAL_CORE_DATA.last_test_result == EMPTY_TEST) {
-                        if(GLOBAL_CORE_DATA.last_test_result == EMPTY_TEST) { 
-                                printf("[WARNING: Empty test!] ");
-                        }
-                        printf("Success!\n");
-                } else {
-                        printf("Failed!\n");
-                        for(size_t j = 0; j < GLOBAL_CORE_DATA.error_list.count; ++j) {
-                                struct TJames_Error *error = LIST_EPTR(struct TJames_Error, GLOBAL_CORE_DATA.error_list, j);
-                                const char *error_type = "NORMAL";
-                                if(error->type == WARNING_ERROR)
-                                {
-                                        error_type = "WARNING";
-                                } else if(error->type == CRITICAL_ERROR)
-                                {
-                                        error_type = "CRITICAL";
-                                }
-                                printf("%s:%s:%lu [%s] %s\n", test_func->file, test_func->func_name, error->line, error_type, error->message);
-                        }
-                        global_result = 1;
-                }
-        }
-        TJames_Destroy();
-        return global_result;
+        printf("%s: [GROUP: %s] [FUNC: %s] ", func->file_name, func->group_name, func->func_name);
 }
 
-int TJames_AddFunc(struct TJames_CoreData *core_data, const TestFuncPtr func_ptr, const char *func_name,
+void TJames_DumpLineTestFunc(const struct TJames_TestFuncData* func)
+{
+        TJames_DumpTestFunc(func);
+        printf("\n");
+}
+
+const char *TJames_ErrorTypeString(const enum TJames_ErrorType type)
+{
+        switch(type)
+        {
+        case WARNING_ERROR:
+                return "WARNING";
+        case NORMAL_ERROR:
+                return "ERROR";
+        case CRITICAL_ERROR:
+                return "CRITICAL";
+        }
+        return "ERROR IN ERROR TYPE STRING";
+}
+
+void TJames_ReportErrors(const struct TJames_TestFuncData* func)
+{
+        for(size_t j = 0; j < GLOBAL_CORE_DATA.error_list.count; ++j) {
+                struct TJames_Error *error = LIST_EPTR(struct TJames_Error, GLOBAL_CORE_DATA.error_list, j);
+                const char *error_type = TJames_ErrorTypeString(error->type);
+                printf("%s:%lu (%s) [%s] %s\n", func->file, error->line, func->func_name, error_type, error->message);
+        }
+}
+
+void TJames_ReportTestFuncResult(const struct TJames_TestFuncData* func)
+{
+        switch(GLOBAL_CORE_DATA.last_test_result)
+        {
+        default:
+        case FAILED_TEST:
+                printf("- Failed!\n");
+                break;
+        case EMPTY_TEST:
+                TJames_PushError("Empty Test", WARNING_ERROR, 0);
+        case SUCCESSFUL_TEST:
+                printf("- Success!\n");
+                break;
+        case SKIPED_TEST:
+                printf("- Skipped!\n");
+                break;
+        }
+        TJames_ReportErrors(func);
+}
+
+int TJames_RunTestFunc(const size_t index)
+{
+        GLOBAL_CORE_DATA.last_test_result = EMPTY_TEST;
+        TJames_ClearList(&GLOBAL_CORE_DATA.error_list);
+
+        struct TJames_TestFunc *func = LIST_EPTR(struct TJames_TestFunc, GLOBAL_CORE_DATA.func_list, index);
+
+        TJames_DumpTestFunc(&func->data);
+
+        func->func_ptr();
+
+        TJames_ReportTestFuncResult(&func->data);
+
+        return GLOBAL_CORE_DATA.last_test_result == SUCCESSFUL_TEST || GLOBAL_CORE_DATA.last_test_result == EMPTY_TEST;
+}
+
+int TJames_Run()
+{
+        size_t test_count = GLOBAL_CORE_DATA.func_list.count;
+        size_t failed_tests = 0;
+        for(size_t i = 0; i < GLOBAL_CORE_DATA.func_list.count; ++i)
+        {
+                printf("\n");
+                int result = TJames_RunTestFunc(i);
+                if(!result){
+                        failed_tests += 1;
+                }
+        }
+        printf("\nRun a total of %lu tests, with a successrate of %lu/%lu\n",
+                test_count, test_count - failed_tests, test_count);
+        TJames_Destroy();
+        return failed_tests != 0;
+}
+
+int TJames_AddFunc(struct TJames_CoreData *core_data,
+        const TestFuncPtr func_ptr,
+        const char *func_name,
+        const char *group_name,
         const size_t added_on_line,
         const char* file)
 {
@@ -182,13 +253,18 @@ int TJames_AddFunc(struct TJames_CoreData *core_data, const TestFuncPtr func_ptr
 
         struct TJames_TestFunc test_func;
         test_func.func_ptr = func_ptr;
-        test_func.func_name = func_name;
-        test_func.added_on_line = added_on_line;
-        test_func.file = file;
+        test_func.data.func_name = func_name;
+        test_func.data.group_name = (group_name) ? group_name : "Default";
+        test_func.data.added_on_line = added_on_line;
+        test_func.data.file = file;
+        test_func.data.file_name = GetFileName(file);
         return TJames_AddToList(&core_data->func_list, &test_func);
 }
 
-#define TJAMES_ADD_FUNC(func_ptr) TJames_AddFunc(&GLOBAL_CORE_DATA, func_ptr, #func_ptr, __LINE__, __FILE__)
+
+
+#define TJAMES_ADD_GROUPED_FUNC(func_ptr, group) TJames_AddFunc(&GLOBAL_CORE_DATA, func_ptr, #func_ptr, group, __LINE__, __FILE__)
+#define TJAMES_ADD_FUNC(func_ptr) TJAMES_ADD_GROUPED_FUNC(func_ptr, NULL)
 
 int last_result = 0;
 
@@ -223,57 +299,87 @@ int last_result = 0;
 #define TJAMES_LESS_EQUAL(a, b) TJAMES_CMP(a, <=, b, "Failed less equal comparison!") 
 #define TJAMES_GREATER_EQUAL(a, b) TJAMES_CMP(a, >=, b, "Failed greater equal comparison!") 
 
+#define TJAMES_WARNING(message) do { \
+                                        TJames_PushError(message, WARNING_ERROR, __LINE__); \
+                                } while(0)
 
-void a()
-{
-        TJAMES_EQUAL(1, 1);
-        TJAMES_EQUAL(3, 2);
-        TJAMES_EQUAL(2, 2);
+#define TJAMES_SKIP()   do { \
+                                GLOBAL_CORE_DATA.last_test_result = SKIPED_TEST; \
+                                return; \
+                        } while(0)
+
+typedef enum {
+    TOKEN_INT,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+    TOKEN_EOF
+} TokenType;
+
+struct Token {
+    TokenType type;
+    const char *text;
+};
+
+struct Token lex_next(const char **input) {
+    while (**input == ' ') (*input)++;
+
+    struct Token t;
+    t.text = *input;
+
+    switch (**input) {
+        case '+': t.type = TOKEN_PLUS; (*input)++; break;
+        case '-': t.type = TOKEN_MINUS; (*input)++; break;
+        case '\0': t.type = TOKEN_EOF; break;
+        default: t.type = TOKEN_INT; (*input)++; break;
+    }
+    return t;
 }
 
-void b()
-{
-        TJAMES_NOT_EQUAL(1, 2);
-        TJAMES_NOT_EQUAL(3, 3);
-        TJAMES_NOT_EQUAL(2, 4);
+void test_lexer_plus() {
+    const char *input = "+";
+    struct Token tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_PLUS);
 }
 
-void c()
-{
-        TJAMES_LESS(1, 2);
-        TJAMES_GREATER(4, 4);
-        TJAMES_LESS_EQUAL(2, 4);
-        TJAMES_GREATER_EQUAL(1, 4);
+void test_lexer_minus() {
+    const char *input = "-";
+    struct Token tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_MINUS);
 }
 
-void d()
-{
-
+void test_lexer_integer() {
+    const char *input = "7";
+    struct Token tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_INT);
 }
 
-void e()
-{
-        TJAMES_EQUAL(1, 1);
-        TJAMES_EQUAL(3, 2);
-        TJAMES_EQUAL(2, 2);
-        TJAMES_NOT_EQUAL(1, 2);
-        TJAMES_NOT_EQUAL(3, 3);
-        TJAMES_NOT_EQUAL(2, 4);
-        TJAMES_LESS(1, 2);
-        TJAMES_GREATER(4, 4);
-        TJAMES_LESS_EQUAL(2, 4);
-        TJAMES_GREATER_EQUAL(1, 4);
+void test_lexer_sequence() {
+    const char *input = "7 + - 3";
+    struct Token tok;
+    
+    tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_INT);
+
+    tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_PLUS);
+
+    tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_MINUS);
+
+    tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_INT);
+
+    tok = lex_next(&input);
+    TJAMES_EQUAL(tok.type, TOKEN_EOF);
 }
 
-int main()
-{
-        TJames_Init();
+int main() {
+    TJames_Init();
 
-        TJAMES_ADD_FUNC(a);
-        TJAMES_ADD_FUNC(b);
-        TJAMES_ADD_FUNC(c);
-        TJAMES_ADD_FUNC(d);
-        TJAMES_ADD_FUNC(e);
+    TJAMES_ADD_GROUPED_FUNC(test_lexer_plus, "Lexer");
+    TJAMES_ADD_GROUPED_FUNC(test_lexer_minus, "Lexer");
+    TJAMES_ADD_GROUPED_FUNC(test_lexer_integer, "Lexer");
+    TJAMES_ADD_GROUPED_FUNC(test_lexer_sequence, "Lexer");
 
-        return TJames_Run();
+    return TJames_Run();
 }

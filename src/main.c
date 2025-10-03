@@ -65,13 +65,20 @@ void test_lexer_sequence() {
     TJAMES_EQUAL(tok.type, TOKEN_EOF);
 }
 
+void test_new()
+{
+        TJAMES_EQUAL_INT(2, 2);
+        TJAMES_EQUAL_FLOAT(3.2, 3.2);
+}
+
 int main() {
-    TJames_Init();
+        TJames_Init();
 
-    TJAMES_ADD_GROUPED_FUNC(test_lexer_plus, "Lexer");
-    TJAMES_ADD_GROUPED_FUNC(test_lexer_minus, "Lexer");
-    TJAMES_ADD_GROUPED_FUNC(test_lexer_integer, "Lexer");
-    TJAMES_ADD_GROUPED_FUNC(test_lexer_sequence, "Lexer");
+        TJAMES_ADD_GROUPED_FUNC(test_lexer_plus, "Lexer");
+        TJAMES_ADD_GROUPED_FUNC(test_lexer_minus, "Lexer");
+        TJAMES_ADD_GROUPED_FUNC(test_lexer_integer, "Lexer");
+        TJAMES_ADD_GROUPED_FUNC(test_lexer_sequence, "Lexer");
+        TJAMES_ADD_FUNC(test_new);
 
-    return TJames_Run();
+        return TJames_Run();
 }

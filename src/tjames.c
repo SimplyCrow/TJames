@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 struct TJames_List
 {
@@ -32,7 +33,7 @@ struct TJames_TestFunc
 
 struct TJames_Error
 {
-        const char *message;
+        char *message;
         enum TJames_ErrorType type; 
         size_t line;
 };
@@ -109,13 +110,55 @@ const char *GetFileName(const char *path)
         return path + last_slash + 1;
 }
 
-void TJames_PushError(const char* message, const enum TJames_ErrorType type, const size_t line)
+char *TJames_FormatErrorMessage(const char* message, va_list args)
+{
+        va_list args_string;
+
+        va_copy(args_string, args);
+        int length = vsnprintf(NULL, 0, message, args);
+
+        if(length < 0) {
+                va_end(args_string);
+                return NULL;
+        }
+
+        char* buffer = malloc((length + 1) * sizeof(char));
+        if(!buffer) {
+                va_end(args_string);
+                return NULL;
+        }
+
+        int result = vsnprintf(buffer, length + 1, message, args_string);
+        va_end(args_string);
+
+        if(result < 0) {
+                va_end(args_string);
+                return NULL;
+        }
+
+        return buffer;
+}
+
+void TJames_PushError(const enum TJames_ErrorType type, const size_t line, const char* message, ...)
 {
         struct TJames_Error error;
-        error.message = message;
+        
+        va_list message_args;
+        va_start(message_args, message);
+        error.message = TJames_FormatErrorMessage(message, message_args);
+        va_end(message_args);
+
         error.type = type;
         error.line = line;
         TJames_AddToList(&GLOBAL_CORE_DATA.error_list, &error);
+}
+
+void TJames_ClearErrorList()
+{
+        for(size_t i = 0; i < GLOBAL_CORE_DATA.error_list.count; ++i) {
+                free(LIST_EPTR(struct TJames_Error, GLOBAL_CORE_DATA.error_list, i)->message);
+        }
+        TJames_ClearList(&GLOBAL_CORE_DATA.error_list);
 }
 
 void TJames_SetTestFuncResult(const enum TJames_TestResult result)
@@ -146,10 +189,10 @@ void TJames_Init()
 void TJames_Destroy()
 {
         TJames_DestroyList(&GLOBAL_CORE_DATA.func_list);
+        TJames_ClearErrorList();
         TJames_DestroyList(&GLOBAL_CORE_DATA.error_list);
         printf("Destroyed TJames!\n");
 }
-
 
 void TJames_DumpTestFunc(const struct TJames_TestFuncData* func)
 {
@@ -194,7 +237,7 @@ void TJames_ReportTestFuncResult(const struct TJames_TestFuncData* func)
                 printf("- Failed!\n");
                 break;
         case EMPTY_TEST:
-                TJames_PushError("Empty Test", WARNING_ERROR, 0);
+                TJames_PushError(WARNING_ERROR, 0, "Empty Test");
         case SUCCESSFUL_TEST:
                 printf("- Success!\n");
                 break;
@@ -208,7 +251,7 @@ void TJames_ReportTestFuncResult(const struct TJames_TestFuncData* func)
 int TJames_RunTestFunc(const size_t index)
 {
         GLOBAL_CORE_DATA.last_test_result = EMPTY_TEST;
-        TJames_ClearList(&GLOBAL_CORE_DATA.error_list);
+        TJames_ClearErrorList();
 
         struct TJames_TestFunc *func = LIST_EPTR(struct TJames_TestFunc, GLOBAL_CORE_DATA.func_list, index);
 

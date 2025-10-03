@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.50)
 
 project(
         tjames
@@ -8,4 +8,5 @@ project(
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(tjames src/main.c)
+add_executable(tjames   src/main.c
+                        src/tjames.c)
